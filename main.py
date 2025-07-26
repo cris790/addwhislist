@@ -1,3 +1,4 @@
+# api/index.py
 import random
 import requests
 import json
@@ -31,7 +32,7 @@ def decode_jwt(token):
         print(f"Erro ao decodificar JWT: {e}")
         return None
 
-@app.route('/add', methods=['GET'])
+@app.route('/api/add', methods=['GET'])
 def add_to_wishlist():
     item_id = request.args.get('id')
     if not item_id:
@@ -82,5 +83,8 @@ def add_to_wishlist():
     except Exception as e:
         return jsonify({"success": False, "message": f"Erro ao adicionar à wishlist: {str(e)}"}), 500
 
-if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+# Handler para a Vercel
+def handler(request):
+    with app.app_context():
+        response = app.full_dispatch_request()()
+        return response
