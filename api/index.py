@@ -1,4 +1,3 @@
-# api/index.py
 import random
 import requests
 import json
@@ -12,15 +11,19 @@ CREDENTIALS_FILE = 'credentials.txt'
 
 def get_random_credentials():
     """Lê um par UID:password aleatório do arquivo de credenciais"""
-    with open(CREDENTIALS_FILE, 'r') as f:
-        lines = f.readlines()
-        if not lines:
-            return None, None
+    try:
+        with open(CREDENTIALS_FILE, 'r') as f:
+            lines = f.readlines()
+            if not lines:
+                return None, None
 
-        line = random.choice(lines).strip()
-        if ':' in line:
-            uid, password = line.split(':', 1)
-            return uid, password
+            line = random.choice(lines).strip()
+            if ':' in line:
+                uid, password = line.split(':', 1)
+                return uid, password
+            return None, None
+    except Exception as e:
+        print(f"Erro ao ler arquivo de credenciais: {e}")
         return None, None
 
 def decode_jwt(token):
@@ -87,4 +90,8 @@ def add_to_wishlist():
 def handler(request):
     with app.app_context():
         response = app.full_dispatch_request()()
-        return response
+        return {
+            'statusCode': response.status_code,
+            'headers': dict(response.headers),
+            'body': response.get_data(as_text=True)
+        }
