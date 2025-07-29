@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+message CSChangeWishListItemReq {
+    repeated uint32 add_item_ids = 1;
+    repeated uint32 del_item_ids = 2;
+    repeated string add_source = 3;
+    repeated string del_source = 4;
+}
+
+message CSChangeWishListItemRes {
+    repeated uint32 success_add_item_ids = 1;
+    repeated uint32 success_del_item_ids = 2;
+    string message = 3;
+}
