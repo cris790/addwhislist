@@ -106,12 +106,3 @@ def home():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
-tem como modifica para nessa resposta {
-  "data": {
-    "success_add_item_ids": [8, 204047027, 16, 1753759547, 8, 710047023, 16, 1753758966]
-  },
-  "status": 200
-} mostra apenas o id que foi adicionado exempleo eu do /add?ids=211047044 ele responder apenas {
-  "added_ids": [211047044, ], Com sucesso.
-  "status": 200
-} mostra apenas os ids que usei no /add
