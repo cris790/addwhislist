@@ -3,7 +3,8 @@ import requests
 import ChangeWishListItem_pb2 as wishlist_pb2
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
-from google.protobuf.json_format import MessageToDict
+import jwt
+from datetime import datetime
 
 app = Flask(__name__)
 
@@ -13,6 +14,14 @@ IV = bytes([54, 111, 121, 90, 68, 114, 50, 50, 69, 51, 121, 99, 104, 106, 77, 37
 
 # Token fixo (coloque seu JWT válido aqui)
 JWT_TOKEN = "eyJhbGciOiJIUzI1NiIsInN2ciI6IjIiLCJ0eXAiOiJKV1QifQ.eyJhY2NvdW50X2lkIjoxMTA2MjkxMDY1Nywibmlja25hbWUiOiJUSFVHX2RLNGJPdGgiLCJub3RpX3JlZ2lvbiI6IkJSIiwibG9ja19yZWdpb24iOiJCUiIsImV4dGVybmFsX2lkIjoiZWZjNDFkZjMwMmZlYzc1ZmM2ZjIxNTUzYzMwNjE4NTEiLCJleHRlcm5hbF90eXBlIjo0LCJwbGF0X2lkIjoxLCJjbGllbnRfdmVyc2lvbiI6IjEuMTExLjEiLCJlbXVsYXRvcl9zY29yZSI6MTAwLCJpc19lbXVsYXRvciI6dHJ1ZSwiY291bnRyeV9jb2RlIjoiVVMiLCJleHRlcm5hbF91aWQiOjM3NDMzMjcwNTQsInJlZ19hdmF0YXIiOjEwMjAwMDAwNywic291cmNlIjowLCJsb2NrX3JlZ2lvbl90aW1lIjoxNzM4OTcyOTY0LCJjbGllbnRfdHlwZSI6Miwic2lnbmF0dXJlX21kNSI6IiIsInVzaW5nX3ZlcnNpb24iOjAsInJlbGVhc2VfY2hhbm5lbCI6IiIsInJlbGVhc2VfdmVyc2lvbiI6Ik9CNDkiLCJleHAiOjE3NTM4NTc2MDJ9.c4UfltA1XatPUY7uXYeeBqnizLvDWqQAb5vTxpbKE_U"
+
+def decode_jwt(token):
+    try:
+        decoded = jwt.decode(token, options={"verify_signature": False})
+        return decoded
+    except Exception as e:
+        return {"error": f"Failed to decode JWT: {str(e)}"}
+
 def build_encrypted_wishlist_data(add_item_ids, del_item_ids):
     req = wishlist_pb2.CSChangeWishListItemReq()
 
@@ -52,7 +61,7 @@ def send_wishlist_request(encrypted_data):
 def parse_response(response, requested_ids, action):
     if response.status_code != 200:
         return {
-            "status": response.status_code,
+            "status": "error",
             "error": response.text,
             "hex": response.content.hex()
         }
@@ -60,24 +69,37 @@ def parse_response(response, requested_ids, action):
     try:
         res_pb = wishlist_pb2.CSChangeWishListItemRes()
         res_pb.ParseFromString(response.content)
-
-        # Formata a resposta conforme solicitado
+        
+        # Decodificar JWT para obter informações do usuário
+        jwt_data = decode_jwt(JWT_TOKEN)
+        
+        # Formatar wishlist items
+        wishlist_items = []
+        for item in res_pb.wishlist_items:
+            wishlist_items.append({
+                "item_id": item.item_id,
+                "add_time": item.add_time
+            })
+        
+        # Construir resposta no formato solicitado
+        response_data = {
+            "account_id": jwt_data.get("account_id", 0),
+            "nickname": jwt_data.get("nickname", ""),
+            "region": jwt_data.get("noti_region", "UNKNOWN"),
+            "status": "success",
+            "wishlist_items": wishlist_items
+        }
+        
         if action == "add":
-            return {
-                "added_ids": requested_ids,
-                "message": "Adicionado com sucesso.",
-                "status": 200
-            }
+            response_data["response"] = f"Itens {requested_ids} adicionados à wishlist"
         elif action == "del":
-            return {
-                "removed_ids": requested_ids,
-                "message": "Removido com sucesso.",
-                "status": 200
-            }
+            response_data["response"] = f"Itens {requested_ids} removidos da wishlist"
+            
+        return response_data
 
     except Exception as e:
         return {
-            "status": 200,
+            "status": "error",
             "error": "Erro ao decodificar resposta Protobuf",
             "exception": str(e),
             "hex": response.content.hex()
@@ -87,7 +109,7 @@ def parse_response(response, requested_ids, action):
 def add_items():
     ids = request.args.get("ids")
     if not ids:
-        return jsonify({"error": "Parâmetro 'ids' é obrigatório"}), 400
+        return jsonify({"status": "error", "error": "Parâmetro 'ids' é obrigatório"}), 400
 
     requested_ids = list(map(int, ids.split(',')))
     encrypted_data = build_encrypted_wishlist_data(ids, "")
@@ -98,7 +120,7 @@ def add_items():
 def del_items():
     ids = request.args.get("ids")
     if not ids:
-        return jsonify({"error": "Parâmetro 'ids' é obrigatório"}), 400
+        return jsonify({"status": "error", "error": "Parâmetro 'ids' é obrigatório"}), 400
 
     requested_ids = list(map(int, ids.split(',')))
     encrypted_data = build_encrypted_wishlist_data("", ids)
