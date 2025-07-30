@@ -19,11 +19,17 @@ JWT_TOKEN = "eyJhbGciOiJIUzI1NiIsInN2ciI6IjIiLCJ0eXAiOiJKV1QifQ.eyJhY2NvdW50X2lk
 
 def decode_jwt(token):
     try:
-        # Decodifica o JWT sem verificar a assinatura (pois não temos a chave secreta)
         decoded = jwt.decode(token, options={"verify_signature": False})
-        return decoded
+        return {
+            "account_id": decoded.get("account_id"),
+            "nickname": decoded.get("nickname"),
+            "region": decoded.get("noti_region", decoded.get("lock_region", "UNKNOWN")),
+            "external_id": decoded.get("external_id")
+        }
     except Exception as e:
-        return {"error": f"Erro ao decodificar JWT: {str(e)}"}
+        return {
+            "error": f"Erro ao decodificar JWT: {str(e)}"
+        }
 
 def build_encrypted_wishlist_data(add_item_ids, del_item_ids):
     req = wishlist_pb2.CSChangeWishListItemReq()
@@ -70,48 +76,45 @@ def format_response(response, action, ids):
         }
 
     try:
-        # Decodifica o JWT para obter informações da conta
-        jwt_data = decode_jwt(JWT_TOKEN)
-        
         res_pb = wishlist_pb2.CSChangeWishListItemRes()
         res_pb.ParseFromString(response.content)
         
-        # Converte a resposta protobuf para dicionário
-        pb_dict = MessageToDict(res_pb, preserving_proto_field_name=True)
+        # Decodificar JWT para obter informações do usuário
+        user_info = decode_jwt(JWT_TOKEN)
         
-        # Formata os itens da wishlist
+        # Processar wishlist items
         wishlist_items = []
-        if 'success_add_item_ids' in pb_dict:
-            add_ids = pb_dict['success_add_item_ids']
-            # Agrupa em pares (item_id, add_time)
-            for i in range(0, len(add_ids), 2):
-                if i+1 < len(add_ids):
+        if action == "add":
+            success_ids = res_pb.success_add_item_ids
+            # O formato é [8, item_id, 16, timestamp, ...]
+            for i in range(1, len(success_ids), 4):
+                if i+1 < len(success_ids):
+                    item_id = success_ids[i]
+                    timestamp = success_ids[i+2] if i+2 < len(success_ids) else int(datetime.now().timestamp())
                     wishlist_items.append({
-                        "item_id": add_ids[i],
-                        "add_time": add_ids[i+1]
+                        "item_id": item_id,
+                        "add_time": timestamp
                     })
-        
-        # Cria a resposta formatada
-        formatted_response = {
-            "account_id": jwt_data.get('account_id', ''),
-            "nickname": jwt_data.get('nickname', ''),
-            "region": jwt_data.get('noti_region', ''),
+            
+            response_message = f"Items {ids} added to wishlist" if len(wishlist_items) > 1 else f"Item {ids} added to wishlist"
+        else:
+            success_ids = res_pb.success_del_item_ids
+            response_message = f"Items {ids} removed from wishlist" if len(success_ids) > 1 else f"Item {ids} removed from wishlist"
+
+        return {
+            "account_id": user_info.get("account_id"),
+            "nickname": user_info.get("nickname"),
+            "region": user_info.get("region"),
+            "response": response_message,
             "status": "success",
             "wishlist_items": wishlist_items
         }
         
-        # Adiciona mensagem de ação
-        if action == "add":
-            formatted_response["response"] = f"Itens {ids} adicionados à wishlist"
-        elif action == "del":
-            formatted_response["response"] = f"Itens {ids} removidos da wishlist"
-        
-        return formatted_response
-        
     except Exception as e:
         return {
             "status": "error",
-            "error": f"Erro ao processar resposta: {str(e)}",
+            "error": "Erro ao decodificar resposta Protobuf",
+            "exception": str(e),
             "hex": response.content.hex()
         }
 
@@ -137,7 +140,13 @@ def del_items():
 
 @app.route("/", methods=["GET"])
 def home():
+    user_info = decode_jwt(JWT_TOKEN)
     return jsonify({
+        "account_info": {
+            "account_id": user_info.get("account_id"),
+            "nickname": user_info.get("nickname"),
+            "region": user_info.get("region")
+        },
         "routes": {
             "/add?ids=ID1,ID2": "Adiciona itens à wishlist",
             "/del?ids=ID1,ID2": "Remove itens da wishlist"
