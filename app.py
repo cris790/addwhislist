@@ -17,10 +17,16 @@ JWT_TOKEN = "eyJhbGciOiJIUzI1NiIsInN2ciI6IjIiLCJ0eXAiOiJKV1QifQ.eyJhY2NvdW50X2lk
 
 def decode_jwt(token):
     try:
+        # Decodificar o JWT sem verificar a assinatura (pois não temos a chave secreta)
         decoded = jwt.decode(token, options={"verify_signature": False})
-        return decoded
+        return {
+            "account_id": decoded.get("account_id"),
+            "nickname": decoded.get("nickname"),
+            "region": decoded.get("noti_region"),
+            "country_code": decoded.get("country_code")
+        }
     except Exception as e:
-        return {"error": f"Failed to decode JWT: {str(e)}"}
+        return {"error": f"Erro ao decodificar JWT: {str(e)}"}
 
 def build_encrypted_wishlist_data(add_item_ids, del_item_ids):
     req = wishlist_pb2.CSChangeWishListItemReq()
@@ -70,10 +76,10 @@ def parse_response(response, requested_ids, action):
         res_pb = wishlist_pb2.CSChangeWishListItemRes()
         res_pb.ParseFromString(response.content)
         
-        # Decodificar JWT para obter informações do usuário
-        jwt_data = decode_jwt(JWT_TOKEN)
+        # Decodificar informações do JWT
+        user_info = decode_jwt(JWT_TOKEN)
         
-        # Formatar wishlist items
+        # Formatar itens da wishlist
         wishlist_items = []
         for item in res_pb.wishlist_items:
             wishlist_items.append({
@@ -81,21 +87,23 @@ def parse_response(response, requested_ids, action):
                 "add_time": item.add_time
             })
         
+        # Formatar mensagem de resposta
+        if action == "add":
+            message = f"Item(s) {', '.join(map(str, requested_ids))} added to wishlist"
+        elif action == "del":
+            message = f"Item(s) {', '.join(map(str, requested_ids))} removed from wishlist"
+        else:
+            message = "Operation completed successfully"
+            
         # Construir resposta no formato solicitado
-        response_data = {
-            "account_id": jwt_data.get("account_id", 0),
-            "nickname": jwt_data.get("nickname", ""),
-            "region": jwt_data.get("noti_region", "UNKNOWN"),
+        return {
+            "account_id": user_info.get("account_id"),
+            "nickname": user_info.get("nickname"),
+            "region": user_info.get("region"),
+            "response": message,
             "status": "success",
             "wishlist_items": wishlist_items
         }
-        
-        if action == "add":
-            response_data["response"] = f"Itens {requested_ids} adicionados à wishlist"
-        elif action == "del":
-            response_data["response"] = f"Itens {requested_ids} removidos da wishlist"
-            
-        return response_data
 
     except Exception as e:
         return {
