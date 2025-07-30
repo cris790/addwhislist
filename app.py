@@ -5,7 +5,8 @@ import ChangeWishListItem_pb2 as wishlist_pb2
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
 from google.protobuf.json_format import MessageToDict
-import jwt  # Adicionado para decodificar o JWT
+import jwt
+from datetime import datetime
 
 app = Flask(__name__)
 
@@ -18,7 +19,7 @@ JWT_TOKEN = "eyJhbGciOiJIUzI1NiIsInN2ciI6IjIiLCJ0eXAiOiJKV1QifQ.eyJhY2NvdW50X2lk
 
 def decode_jwt(token):
     try:
-        # Decodifica o token sem verificar a assinatura (pois não temos a chave secreta)
+        # Decodifica o JWT sem verificar a assinatura (pois não temos a chave secreta)
         decoded = jwt.decode(token, options={"verify_signature": False})
         return decoded
     except Exception as e:
@@ -60,33 +61,34 @@ def send_wishlist_request(encrypted_data):
 
     return requests.post(url, headers=headers, data=encrypted_data)
 
-def parse_response(response, action, ids):
+def format_response(response, action, ids):
     if response.status_code != 200:
         return {
             "status": "error",
             "error": response.text,
-            "status_code": response.status_code,
             "hex": response.content.hex()
         }
 
     try:
-        # Decodifica as informações do JWT
+        # Decodifica o JWT para obter informações da conta
         jwt_data = decode_jwt(JWT_TOKEN)
         
         res_pb = wishlist_pb2.CSChangeWishListItemRes()
         res_pb.ParseFromString(response.content)
+        
+        # Converte a resposta protobuf para dicionário
         pb_dict = MessageToDict(res_pb, preserving_proto_field_name=True)
         
-        # Formata os itens da wishlist conforme o exemplo
+        # Formata os itens da wishlist
         wishlist_items = []
         if 'success_add_item_ids' in pb_dict:
-            # Agrupa os itens em pares (item_id, add_time)
-            items = pb_dict['success_add_item_ids']
-            for i in range(0, len(items), 2):
-                if i+1 < len(items):
+            add_ids = pb_dict['success_add_item_ids']
+            # Agrupa em pares (item_id, add_time)
+            for i in range(0, len(add_ids), 2):
+                if i+1 < len(add_ids):
                     wishlist_items.append({
-                        "item_id": items[i],
-                        "add_time": items[i+1]
+                        "item_id": add_ids[i],
+                        "add_time": add_ids[i+1]
                     })
         
         # Cria a resposta formatada
@@ -98,7 +100,7 @@ def parse_response(response, action, ids):
             "wishlist_items": wishlist_items
         }
         
-        # Adiciona mensagem de sucesso específica
+        # Adiciona mensagem de ação
         if action == "add":
             formatted_response["response"] = f"Itens {ids} adicionados à wishlist"
         elif action == "del":
@@ -109,8 +111,7 @@ def parse_response(response, action, ids):
     except Exception as e:
         return {
             "status": "error",
-            "error": "Erro ao decodificar resposta Protobuf",
-            "exception": str(e),
+            "error": f"Erro ao processar resposta: {str(e)}",
             "hex": response.content.hex()
         }
 
@@ -122,7 +123,7 @@ def add_items():
 
     encrypted_data = build_encrypted_wishlist_data(ids, "")
     response = send_wishlist_request(encrypted_data)
-    return jsonify(parse_response(response, "add", ids))
+    return jsonify(format_response(response, "add", ids))
 
 @app.route("/del", methods=["GET"])
 def del_items():
@@ -132,7 +133,7 @@ def del_items():
 
     encrypted_data = build_encrypted_wishlist_data("", ids)
     response = send_wishlist_request(encrypted_data)
-    return jsonify(parse_response(response, "del", ids))
+    return jsonify(format_response(response, "del", ids))
 
 @app.route("/", methods=["GET"])
 def home():
